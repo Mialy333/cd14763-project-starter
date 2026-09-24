@@ -39,6 +39,7 @@ from strands_tools.browser import AgentCoreBrowser
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("CSAI_Agent")
+logger.setLevel(logging.INFO)  # keep our own tool-call trace visible without noisy library logs
 
 # ── App Initialisation ────────────────────────────────────────────────────────
 # Create a BedrockAgentCoreApp instance.
@@ -60,7 +61,7 @@ os.environ["BYPASS_TOOL_CONSENT"] = "true"
 # REGION:     your AWS region, e.g. "us-east-1"
 # MEMORY_ID   format: shown in the AgentCore Memory console
 
-GATEWAY_URL = "https://customersupportgateway-5r0bralyjj.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp" 
+GATEWAY_URL = "https://customersupportgateway-5r0bralyjj.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"  # TODO: double-check this matches your Gateway console exactly
 KB_ID       = "AFJJCJNMED"
 REGION      = "us-east-1"
 MEMORY_ID   = "CustomerSupportMemory-D0IRyF6feE"
@@ -316,7 +317,7 @@ print(json.dumps(result))
 
 # ── Agent Entrypoint ────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
-  "You are a helpful customer support assistant for an e-commerce platform. "
+    "You are a helpful customer support assistant for an e-commerce platform. "
     "You can track orders, process refunds, answer product and policy questions "
     "using the knowledge base, calculate loyalty discounts, and browse the web "
     "for live information. Always confirm the customer's order or refund details "
@@ -376,6 +377,25 @@ async def invoke(payload, context=None):
             )
 
             response = agent(user_input)
+
+            # Trace evidence: log each Gateway/local tool call made this turn,
+            # with its name, input, and structured result, so reviewers can
+            # confirm which target actually answered the request.
+            for msg in agent.messages:
+                for block in msg.get("content", []):
+                    if "toolUse" in block:
+                        tu = block["toolUse"]
+                        logger.info(
+                            "TOOL CALL name=%s input=%s",
+                            tu.get("name"), tu.get("input"),
+                        )
+                    if "toolResult" in block:
+                        tr = block["toolResult"]
+                        logger.info(
+                            "TOOL RESULT toolUseId=%s status=%s content=%s",
+                            tr.get("toolUseId"), tr.get("status"), tr.get("content"),
+                        )
+
             return response.message["content"][0]["text"]
 
     except Exception as e:
